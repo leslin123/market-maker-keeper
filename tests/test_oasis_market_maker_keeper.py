@@ -838,6 +838,7 @@ class TestOasisMarketMakerKeeper:
         assert len(deployment.otc.get_orders()) == 2
 
         # and
+        # [two cancellations and two new orders -> 4 transactions in total]
         assert block_number_after - block_number_before == 4
 
         # and
@@ -849,6 +850,83 @@ class TestOasisMarketMakerKeeper:
 
         # and
         assert self.orders_by_token(deployment, deployment.gem)[0].maker == deployment.our_address
+        assert self.orders_by_token(deployment, deployment.gem)[0].pay_amount == Wad.from_number(7.5)
+        assert self.orders_by_token(deployment, deployment.gem)[0].pay_token == deployment.gem.address
+        assert self.orders_by_token(deployment, deployment.gem)[0].buy_amount == Wad.from_number(780*2)
+        assert self.orders_by_token(deployment, deployment.gem)[0].buy_token == deployment.sai.address
+
+    def test_should_replace_orders_using_txmanager(self, deployment: Deployment, tmpdir):
+        # given
+        config_file = BandConfig.sample_config(tmpdir)
+
+        # and
+        tx_manager = TxManager.deploy(deployment.web3)
+
+        # and
+        keeper = OasisMarketMakerKeeper(args=args(f"--eth-from {deployment.our_address} "
+                                                  f"--tx-manager-address {tx_manager.address} "
+                                                  f"--tub-address {deployment.tub.address} "
+                                                  f"--oasis-address {deployment.otc.address} "
+                                                  f"--buy-token-address {deployment.sai.address} "
+                                                  f"--sell-token-address {deployment.gem.address} "
+                                                  f"--price-feed tub "
+                                                  f"--config {config_file}"),
+                                        web3=deployment.web3)
+        keeper.lifecycle = Lifecycle(web3=keeper.web3)
+
+        # and
+        self.mint_tokens(deployment)
+
+        # and
+        keeper.approve()
+
+        # when
+        self.set_price(deployment, Wad.from_number(100))
+        self.synchronize_orders_once(keeper)
+
+        # then
+        assert len(deployment.otc.get_orders()) == 2
+
+        # and
+        # [bear in mind it's the TxManager who owns the orders in this case]
+        assert self.orders_by_token(deployment, deployment.sai)[0].maker == tx_manager.address
+        assert self.orders_by_token(deployment, deployment.sai)[0].pay_amount == Wad.from_number(75)
+        assert self.orders_by_token(deployment, deployment.sai)[0].pay_token == deployment.sai.address
+        assert self.orders_by_token(deployment, deployment.sai)[0].buy_amount == Wad.from_number(0.78125)
+        assert self.orders_by_token(deployment, deployment.sai)[0].buy_token == deployment.gem.address
+
+        # and
+        # [bear in mind it's the TxManager who owns the orders in this case]
+        assert self.orders_by_token(deployment, deployment.gem)[0].maker == tx_manager.address
+        assert self.orders_by_token(deployment, deployment.gem)[0].pay_amount == Wad.from_number(7.5)
+        assert self.orders_by_token(deployment, deployment.gem)[0].pay_token == deployment.gem.address
+        assert self.orders_by_token(deployment, deployment.gem)[0].buy_amount == Wad.from_number(780)
+        assert self.orders_by_token(deployment, deployment.gem)[0].buy_token == deployment.sai.address
+
+        # when
+        self.set_price(deployment, Wad.from_number(200))
+        block_number_before = deployment.web3.eth.blockNumber
+        self.synchronize_orders_once(keeper)
+        block_number_after = deployment.web3.eth.blockNumber
+
+        # then
+        assert len(deployment.otc.get_orders()) == 2
+
+        # and
+        # [cancellation and new order placement happen in one transaction]
+        assert block_number_after - block_number_before == 1
+
+        # and
+        # [bear in mind it's the TxManager who owns the orders in this case]
+        assert self.orders_by_token(deployment, deployment.sai)[0].maker == tx_manager.address
+        assert self.orders_by_token(deployment, deployment.sai)[0].pay_amount == Wad.from_number(75)
+        assert self.orders_by_token(deployment, deployment.sai)[0].pay_token == deployment.sai.address
+        assert self.orders_by_token(deployment, deployment.sai)[0].buy_amount == Wad.from_number(0.78125/2)
+        assert self.orders_by_token(deployment, deployment.sai)[0].buy_token == deployment.gem.address
+
+        # and
+        # [bear in mind it's the TxManager who owns the orders in this case]
+        assert self.orders_by_token(deployment, deployment.gem)[0].maker == tx_manager.address
         assert self.orders_by_token(deployment, deployment.gem)[0].pay_amount == Wad.from_number(7.5)
         assert self.orders_by_token(deployment, deployment.gem)[0].pay_token == deployment.gem.address
         assert self.orders_by_token(deployment, deployment.gem)[0].buy_amount == Wad.from_number(780*2)

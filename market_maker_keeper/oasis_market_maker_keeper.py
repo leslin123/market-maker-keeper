@@ -18,6 +18,7 @@
 import argparse
 import logging
 import sys
+from typing import List
 
 from web3 import Web3, HTTPProvider
 
@@ -31,10 +32,10 @@ from market_maker_keeper.reloadable_config import ReloadableConfig
 from market_maker_keeper.spread_feed import create_spread_feed
 from market_maker_keeper.util import setup_logging
 from pymaker import Address
-from pymaker.approval import directly
+from pymaker.approval import directly, via_tx_manager
 from pymaker.lifecycle import Lifecycle
 from pymaker.numeric import Wad
-from pymaker.oasis import Order, MatchingMarket
+from pymaker.oasis import Order, MatchingMarket, LogMake
 from pymaker.sai import Tub
 from pymaker.token import ERC20Token
 from pymaker.transactional import TxManager
@@ -60,6 +61,9 @@ class OasisMarketMakerKeeper:
 
         parser.add_argument("--eth-from", type=str, required=True,
                             help="Ethereum account from which to send transactions")
+
+        parser.add_argument("--tx-manager-address", type=str,
+                            help="Ethereum address of the TxManager to be used for atomic transactions")
 
         parser.add_argument("--tub-address", type=str, required=False,
                             help="Ethereum address of the Tub contract")
@@ -120,6 +124,8 @@ class OasisMarketMakerKeeper:
         self.web3.eth.defaultAccount = self.arguments.eth_from
         self.our_address = Address(self.arguments.eth_from)
         self.otc = MatchingMarket(web3=self.web3, address=Address(self.arguments.oasis_address))
+        self.tx_manager = TxManager(web3=self.web3, address=Address(self.arguments.tx_manager_address)) \
+            if self.arguments.tx_manager_address is not None else None
 
         tub = Tub(web3=self.web3, address=Address(self.arguments.tub_address)) \
             if self.arguments.tub_address is not None else None
@@ -136,8 +142,11 @@ class OasisMarketMakerKeeper:
         self.history = History()
         self.order_book_manager = OrderBookManager(refresh_frequency=self.arguments.refresh_frequency)
         self.order_book_manager.get_orders_with(lambda: self.our_orders())
-        self.order_book_manager.place_orders_with(self.place_order_function)
-        self.order_book_manager.cancel_orders_with(self.cancel_order_function)
+        if self.tx_manager is not None:
+            self.order_book_manager.replace_orders_with(self.replace_orders_function)
+        else:
+            self.order_book_manager.place_orders_with(self.place_order_function)
+            self.order_book_manager.cancel_orders_with(self.cancel_order_function)
         self.order_book_manager.enable_history_reporting(self.order_history_reporter, self.our_buy_orders, self.our_sell_orders)
         self.order_book_manager.start()
 
@@ -162,7 +171,13 @@ class OasisMarketMakerKeeper:
 
     def approve(self):
         """Approve OasisDEX to access our balances, so we can place orders."""
-        self.otc.approve([self.token_sell, self.token_buy], directly(gas_price=self.gas_price))
+        tokens = [self.token_sell, self.token_buy]
+
+        self.otc.approve(tokens, directly(gas_price=self.gas_price))
+
+        if self.tx_manager:
+            self.otc.approve(tokens, via_tx_manager(self.tx_manager, gas_price=self.gas_price))
+            self.tx_manager.approve(tokens, directly(gas_price=self.gas_price))
 
     def our_available_balance(self, token: ERC20Token) -> Wad:
         return token.balance_of(self.our_address)
@@ -226,11 +241,11 @@ class OasisMarketMakerKeeper:
             return
 
         # Place new orders
-        self.order_book_manager.place_orders(bands.new_orders(our_buy_orders=self.our_buy_orders(order_book.orders),
-                                                              our_sell_orders=self.our_sell_orders(order_book.orders),
-                                                              our_buy_balance=self.our_available_balance(self.token_buy),
-                                                              our_sell_balance=self.our_available_balance(self.token_sell),
-                                                              target_price=target_price)[0])
+        self.order_book_manager.replace_orders([], bands.new_orders(our_buy_orders=self.our_buy_orders(order_book.orders),
+                                                                    our_sell_orders=self.our_sell_orders(order_book.orders),
+                                                                    our_buy_balance=self.our_available_balance(self.token_buy),
+                                                                    our_sell_balance=self.our_available_balance(self.token_sell),
+                                                                    target_price=target_price)[0])
 
     def place_order_function(self, new_order: NewOrder):
         assert(isinstance(new_order, NewOrder))
@@ -260,6 +275,49 @@ class OasisMarketMakerKeeper:
     def cancel_order_function(self, order):
         transact = self.otc.kill(order.order_id).transact(gas_price=self.gas_price)
         return transact is not None and transact.successful
+
+    def replace_orders_function(self, orders: List[Order], new_orders: List[NewOrder]):
+        assert(isinstance(orders, list))
+        assert(isinstance(new_orders, list))
+
+        invocations = []
+
+        for order in orders:
+            invocations.append(self.otc.kill(order.order_id).invocation())
+
+        for new_order in new_orders:
+            if new_order.is_sell:
+                pay_token = self.token_sell.address
+                buy_token = self.token_buy.address
+            else:
+                pay_token = self.token_buy.address
+                buy_token = self.token_sell.address
+
+            invocations.append(self.otc.make(pay_token=pay_token, pay_amount=new_order.pay_amount,
+                                             buy_token=buy_token, buy_amount=new_order.buy_amount).invocation())
+
+        receipt = self.tx_manager \
+            .execute([self.token_sell.address, self.token_buy.address], invocations) \
+            .transact(gas_price=self.gas_price)
+
+        if receipt is not None and receipt.successful:
+            log_makes = list(LogMake.from_receipt(receipt))
+
+            if len(log_makes) != len(new_orders):
+                raise Exception(f"Tried to place {len(new_orders)} via TxManager but only {len(log_makes)} events"
+                                f" found in the receipt. This should never happen!")
+
+            return True, list(map(lambda log_make: Order(market=self.otc,
+                                                         order_id=log_make.order_id,
+                                                         maker=log_make.maker,
+                                                         pay_token=log_make.pay_token,
+                                                         pay_amount=log_make.pay_amount,
+                                                         buy_token=log_make.buy_token,
+                                                         buy_amount=log_make.buy_amount,
+                                                         timestamp=log_make.timestamp), log_makes))
+
+        else:
+            return False, []
 
 
 if __name__ == '__main__':

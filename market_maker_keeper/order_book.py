@@ -21,6 +21,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
+from typing import List
 
 from market_maker_keeper.order_history_reporter import OrderHistoryReporter
 
@@ -100,6 +101,7 @@ class OrderBookManager:
         self.get_balances_function = None
         self.place_order_function = None
         self.cancel_order_function = None
+        self.replace_orders_function = None
         self.order_history_reporter = None
         self.buy_filter_function = None
         self.sell_filter_function = None
@@ -155,6 +157,16 @@ class OrderBookManager:
         assert(callable(cancel_order_function))
 
         self.cancel_order_function = cancel_order_function
+
+    def replace_orders_with(self, replace_orders_function):
+        """Configures the function used to replace orders.
+
+        Args:
+            replace_orders_function: The function which will be called in order to replace orders.
+        """
+        assert(callable(replace_orders_function))
+
+        self.replace_orders_function = replace_orders_function
 
     def enable_history_reporting(self, order_history_reporter: OrderHistoryReporter, buy_filter_function, sell_filter_function):
         assert(isinstance(order_history_reporter, OrderHistoryReporter) or (order_history_reporter is None))
@@ -266,8 +278,12 @@ class OrderBookManager:
         """
         assert(isinstance(orders, list))
         assert(isinstance(new_orders, list))
-        assert(callable(self.place_order_function))
-        assert(callable(self.cancel_order_function))
+
+        if self.replace_orders_function is not None:
+            assert(callable(self.replace_orders_function))
+        else:
+            assert(callable(self.place_order_function))
+            assert(callable(self.cancel_order_function))
 
         with self._lock:
             for order in orders:
@@ -275,11 +291,16 @@ class OrderBookManager:
 
             self._currently_placing_orders += len(new_orders)
 
-        for order in orders:
-            self._executor.submit(self._thread_cancel_order(order.order_id, partial(self.cancel_order_function, order)))
+        if self.replace_orders_function is not None:
+            order_ids = list(map(lambda order: order.order_id, orders))
+            self._executor.submit(self._thread_replace_orders(order_ids, len(new_orders), partial(self.replace_orders_function, orders, new_orders)))
 
-        for new_order in new_orders:
-            self._executor.submit(self._thread_place_order(partial(self.place_order_function, new_order)))
+        else:
+            for order in orders:
+                self._executor.submit(self._thread_cancel_order(order.order_id, partial(self.cancel_order_function, order)))
+
+            for new_order in new_orders:
+                self._executor.submit(self._thread_place_order(partial(self.place_order_function, new_order)))
 
     def cancel_all_orders(self, final_wait_time: int = None):
         # Cancel all orders straight away, repeat until the internal order book state confirms
@@ -422,5 +443,34 @@ class OrderBookManager:
                         self._order_ids_cancelling.remove(order_id)
                     except KeyError:
                         pass
+
+        return func
+
+    def _thread_replace_orders(self, order_ids: List[int], placing_orders_cnt: int, replace_orders_function):
+        assert(isinstance(order_ids, list))
+        assert(isinstance(placing_orders_cnt, int))
+        assert(callable(replace_orders_function))
+
+        def func():
+            try:
+                cancellation_successful, orders_placed = replace_orders_function()
+
+                with self._lock:
+                    if cancellation_successful:
+                        for order_id in order_ids:
+                            self._order_ids_cancelled.add(order_id)
+                            self._order_ids_cancelling.remove(order_id)
+
+                    for order_placed in orders_placed:
+                        self._orders_placed.append(order_placed)
+            finally:
+                with self._lock:
+                    try:
+                        for order_id in order_ids:
+                            self._order_ids_cancelling.remove(order_id)
+                    except KeyError:
+                        pass
+
+                    self._currently_placing_orders -= placing_orders_cnt
 
         return func
