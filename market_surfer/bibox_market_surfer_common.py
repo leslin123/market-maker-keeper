@@ -136,7 +136,7 @@ class BiboxMarketSurfer:
     def initialize_orders(self, each_order_amount, arbitrage_percent, band_order_limit):
         orders = []
         i = 1
-        base_price = self.bibox_api.get_last_price(self.pair())
+        base_price = self.get_last_price(self.pair())
         while band_order_limit+1 > i:
             # place sell order
             price = float(base_price) * (1 + arbitrage_percent*i)
@@ -178,6 +178,9 @@ class BiboxMarketSurfer:
     @staticmethod
     def suffix_amount_identify():
         return round(random.random()/100.0, 10)
+    
+    def get_last_price(self, pair):
+        return self.bibox_api.ticker(pair)['last']
         
     def shutdown(self):
         self.order_book_manager.cancel_all_orders(final_wait_time=30)
@@ -305,7 +308,7 @@ class BiboxMarketSurfer:
                         # while band_sell_order_gap > 0: # 外部已经有循环了，不需要这个循环了,否则在多订单被吃时，会加倍补充
                         # 这里只需要判断，控制数量就够了
                         if band_sell_order_gap > 0:
-                            current_price = self.bibox_api.get_last_price(self.pair())
+                            current_price = self.get_last_price(self.pair())
                             self.logger.info("------current price---- " + str(current_price))
                             price = float(current_price) * (1 + self.arbitrage_percent * (step + count_sell_order))
                             self.logger.info("----higher price to sell--- " + str(price))
@@ -339,7 +342,7 @@ class BiboxMarketSurfer:
                         # while band_buy_order_gap > 0:
                         if band_buy_order_gap > 0:
                             #基础价格放在循环里的话，能快速反映当前价格，特保是激烈波动的时候；但是增加了请求次数
-                            current_price = self.bibox_api.get_last_price(self.pair())
+                            current_price = self.get_last_price(self.pair())
                             price = float(current_price) * (1 - self.arbitrage_percent * (step + count_buy_order))
                             self.logger.info("----lower price order to buy--- " + str(price))
                             tmp = self.each_order_amount * self.amount_disguise()
