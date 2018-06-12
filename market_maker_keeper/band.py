@@ -134,15 +134,17 @@ class SellBand(Band):
 
 
 class NewOrder:
-    def __init__(self, is_sell: bool, price: Wad, pay_amount: Wad, buy_amount: Wad, confirm_function):
+    def __init__(self, is_sell: bool, price: Wad, amount: Wad, pay_amount: Wad, buy_amount: Wad, confirm_function):
         assert(isinstance(is_sell, bool))
         assert(isinstance(price, Wad))
+        assert(isinstance(amount, Wad))
         assert(isinstance(pay_amount, Wad))
         assert(isinstance(buy_amount, Wad))
         assert(callable(confirm_function))
 
         self.is_sell = is_sell
         self.price = price
+        self.amount = amount
         self.pay_amount = pay_amount
         self.buy_amount = buy_amount
         self.confirm_function = confirm_function
@@ -292,7 +294,11 @@ class Bands:
                     our_sell_balance = our_sell_balance - pay_amount
                     limit_amount = limit_amount - pay_amount
 
-                    new_orders.append(NewOrder(is_sell=True, price=price, pay_amount=pay_amount, buy_amount=buy_amount,
+                    new_orders.append(NewOrder(is_sell=True,
+                                               price=price,
+                                               amount=pay_amount,
+                                               pay_amount=pay_amount,
+                                               buy_amount=buy_amount,
                                                confirm_function=lambda: self.sell_limits.use_limit(time.time(), pay_amount)))
 
         return new_orders, missing_amount
@@ -321,7 +327,11 @@ class Bands:
                     our_buy_balance = our_buy_balance - pay_amount
                     limit_amount = limit_amount - pay_amount
 
-                    new_orders.append(NewOrder(is_sell=False, price=price, pay_amount=pay_amount, buy_amount=buy_amount,
+                    new_orders.append(NewOrder(is_sell=False,
+                                               price=price,
+                                               amount=buy_amount,
+                                               pay_amount=pay_amount,
+                                               buy_amount=buy_amount,
                                                confirm_function=lambda: self.buy_limits.use_limit(time.time(), pay_amount)))
 
         return new_orders, missing_amount
