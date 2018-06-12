@@ -1,7 +1,7 @@
 {
     "bibox_api_server": "https://api.bibox.com",
     "bibox_api_key": "6fc30eeafb5d6b74d5ec790b01dc33",
-    "bibox_secret": "40ebe35515505b55d3e24180caaf0a",
+    "bibox_secret": "40ebe35515505b55d3e24180caaf0aa",
     "bibox_timeout": 9.5,
     "pairs":
     [
