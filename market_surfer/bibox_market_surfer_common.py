@@ -33,7 +33,6 @@ import random
 import time
 import json
 from market_maker_keeper.util import Logger
-
 from market_maker_keeper.band import NewOrder
 
 class BiboxMarketSurfer:
@@ -144,11 +143,14 @@ class BiboxMarketSurfer:
             pay_amount = each_order_amount * self.amount_disguise() #bix amount
             pay_amount = pay_amount + self.suffix_amount_identify()
             buy_amount = pay_amount * price #eth money
-            print(pay_amount)
+            # print(pay_amount)
             
-            orders.append(NewOrder(is_sell=True, price=Wad.from_number(price), pay_amount=Wad.from_number(pay_amount),
+            orders.append(NewOrder(is_sell=True,
+                                   price=Wad.from_number(price),
+                                   amount=Wad.from_number(pay_amount),
+                                   pay_amount=Wad.from_number(pay_amount),
                                    buy_amount=Wad.from_number(buy_amount),
-                                       confirm_function=lambda: self.sell_limits.use_limit(time.time(), pay_amount)))
+                                   confirm_function=lambda: self.sell_limits.use_limit(time.time(), pay_amount)))
             
             # place buy order, pay attention to rotate bix - eth
             price = float(base_price) * (1 - arbitrage_percent*i)
@@ -157,10 +159,13 @@ class BiboxMarketSurfer:
             pay_amount = tmp * price #eth money 25
             buy_amount = tmp  #bix amount 0.05
             buy_amount = buy_amount + self.suffix_amount_identify()
-            print(buy_amount)
-            orders.append(NewOrder(is_sell=False, price=Wad.from_number(price), pay_amount=Wad.from_number(pay_amount),
+            # print(buy_amount)
+            orders.append(NewOrder(is_sell=False,
+                                   price=Wad.from_number(price),
+                                   amount=Wad.from_number(buy_amount),
+                                   pay_amount=Wad.from_number(pay_amount),
                                    buy_amount=Wad.from_number(buy_amount),
-                                       confirm_function=lambda: self.sell_limits.use_limit(time.time(), pay_amount)))
+                                   confirm_function=lambda: self.sell_limits.use_limit(time.time(), pay_amount)))
             i = i + 1
         
         self.place_orders(orders)
@@ -295,7 +300,9 @@ class BiboxMarketSurfer:
                         pay_amount = float(cod.amount ) * price  # eth money 25
                         buy_amount = float(cod.amount)  # bix amount 0.05
                         new_orders.append(
-                            NewOrder(is_sell=False, price=Wad.from_number(price),
+                            NewOrder(is_sell=False,
+                                     price=Wad.from_number(price),
+                                     amount=Wad.from_number(buy_amount),
                                      pay_amount=Wad.from_number(pay_amount),
                                      buy_amount=Wad.from_number(buy_amount),
                                      confirm_function=lambda: self.sell_limits.use_limit(time.time(), pay_amount)))
@@ -316,7 +323,10 @@ class BiboxMarketSurfer:
                             pay_amount = pay_amount + self.suffix_amount_identify() # add unique identify
                             buy_amount = pay_amount * price  # eth money
                             new_orders.append(
-                                NewOrder(is_sell=True, price=Wad.from_number(price), pay_amount=Wad.from_number(pay_amount),
+                                NewOrder(is_sell=True,
+                                         price=Wad.from_number(price),
+                                         amount=Wad.from_number(pay_amount),
+                                         pay_amount=Wad.from_number(pay_amount),
                                          buy_amount=Wad.from_number(buy_amount),
                                          confirm_function=lambda: self.sell_limits.use_limit(time.time(), pay_amount)))
                             # step = step + 1
@@ -330,7 +340,10 @@ class BiboxMarketSurfer:
                         pay_amount = float(cod.amount)  # bix amount
                         buy_amount = pay_amount * price  # eth money
                         new_orders.append(
-                            NewOrder(is_sell=True, price=Wad.from_number(price), pay_amount=Wad.from_number(pay_amount),
+                            NewOrder(is_sell=True,
+                                     price=Wad.from_number(price),
+                                     amount=Wad.from_number(pay_amount),
+                                     pay_amount=Wad.from_number(pay_amount),
                                      buy_amount=Wad.from_number(buy_amount),
                                      confirm_function=lambda: self.sell_limits.use_limit(time.time(), pay_amount)))
                         # 以当前价格为基数，重新submit一个 buy 订单，补充 buy list
@@ -350,7 +363,9 @@ class BiboxMarketSurfer:
                             buy_amount = tmp  # bix amount 0.05
                             buy_amount = buy_amount + self.suffix_amount_identify()  # add unique identify
                             new_orders.append(
-                                NewOrder(is_sell=False, price=Wad.from_number(price),
+                                NewOrder(is_sell=False,
+                                         price=Wad.from_number(price),
+                                         amount=Wad.from_number(buy_amount),
                                          pay_amount=Wad.from_number(pay_amount),
                                          buy_amount=Wad.from_number(buy_amount),
                                          confirm_function=lambda: self.sell_limits.use_limit(time.time(), pay_amount)))
