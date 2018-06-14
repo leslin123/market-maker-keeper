@@ -106,7 +106,7 @@ class BiboxMarketSurfer:
         
         self.history = History()
         self.bands_config = ReloadableConfig(self.arguments.config)
-        # self.price_feed = PriceFeedFactory().create_price_feed(self.arguments)
+        
         self.spread_feed = create_spread_feed(self.arguments)
         self.order_history_reporter = create_order_history_reporter(self.arguments)
         
@@ -182,7 +182,7 @@ class BiboxMarketSurfer:
     # suffix unique amount number to identify different buy/sell order pairs for result performance statics
     @staticmethod
     def suffix_amount_identify():
-        return round(random.random()/100.0, 10)
+        return round(random.random()/10.0, 10)
     
     def get_last_price(self, pair):
         return self.bibox_api.ticker(pair)['last']
