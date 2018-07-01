@@ -1,0 +1,9 @@
+#!/bin/sh
+dir="$(dirname "$0")"/..
+export PYTHONPATH=$PYTHONPATH:$dir:$dir/lib/pymaker:$dir/lib/pyexchange
+exec python3 -m market_surfer.okex_market_surfer_common_limited $@
+
+<<COMMENT
+sh okex-market-surfer_common_limited  --config ./okex.json --pair OKB_ETH
+
+COMMENT
